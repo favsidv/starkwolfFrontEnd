@@ -1,6 +1,4 @@
 import { RpcProvider, Account, Contract, shortString, CallData } from 'starknet';
-import * as grpc from '@grpc/grpc-js';
-import * as protoLoader from '@grpc/proto-loader';
 import { promisify } from 'util';
 import fs from 'fs';
 import dotenv from 'dotenv';
@@ -17,14 +15,6 @@ type ContractAddress = string;
  * Type for a Starknet account address (hex string starting with 0x)
  */
 type AccountAddress = string;
-
-// Définition du type pour le service Torii
-type ToriiService = {
-    Torii: {
-        service: grpc.ServiceDefinition<any>;
-        [key: string]: any;
-    }
-};
 
 /**
  * Main class to interact with the StarkWolf game contract
@@ -54,23 +44,6 @@ export class StarkWolfGame {
         const abiData = fs.readFileSync(abiPath, 'utf-8');
         const abi = JSON.parse(abiData).abi;
         this.contract = new Contract(abi, contractAddress, this.provider);
-
-        // Configuration gRPC
-        const packageDefinition = protoLoader.loadSync('./torii.proto', {
-            keepCase: true,
-            longs: String,
-            enums: String,
-            defaults: true,
-            oneofs: true
-        });
-
-        const protoDescriptor = grpc.loadPackageDefinition(packageDefinition);
-        const toriiService = (protoDescriptor.torii as ToriiService);
-        
-        this.grpcClient = new (toriiService.Torii as any)(
-            grpcUrl,
-            grpc.credentials.createInsecure()
-        );
     }
 
     addAccount(address: string, privateKey: string) {
