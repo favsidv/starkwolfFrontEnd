@@ -3,13 +3,11 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Users, Plus, ArrowRight, X, Clock, Check, Wallet, ChevronLeft, ChevronRight } from 'lucide-react';
 import defaultAvatar from '../assets/default-avatar.png';
 import logo from '../assets/logo.webp';
-import { connect, disconnect, StarknetWindowObject } from "starknetkit";
-import { InjectedConnector } from "starknetkit/injected";
-import { WebWalletConnector } from "starknetkit/webwallet";
+import { RpcProvider, Contract, CallData } from 'starknet';
+import { connect, disconnect, getWalletState, createContract } from '../lib/wallet';
 import Background from '../assets/background.svg';
 import BackgroundNoSky from '../assets/backgroundnosky.webp';
 import { BackgroundStars } from './Background.tsx';
-import { RpcProvider, Contract, CallData } from 'starknet';
 import abiData from '../../tests/abi_actions.json'; // Correct ABI path
 
 // Role card imports
@@ -40,76 +38,62 @@ interface Role {
 }
 
 /** Header Component */
-const Header = ({ onConnect }: { onConnect: (wallet: StarknetWindowObject | undefined, address: string | undefined) => void }) => {
-  const [connection, setConnection] = useState<StarknetWindowObject>();
-  const [address, setAddress] = useState<string>();
+const Header = ({ onConnect }: { onConnect: (address: string | undefined) => void }) => {
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [address, setAddress] = useState<string | undefined>();
 
   useEffect(() => {
-    const connectToStarknet = async () => {
-      const { wallet } = await connect({
-        connectors: [
-          new InjectedConnector({ options: { id: "argentX" } }),
-          new InjectedConnector({ options: { id: "braavos" } }),
-        ],
-        modalMode: "neverAsk",
-      });
-      if (wallet && wallet.isConnected) {
-        setConnection(wallet);
-        setAddress(wallet.selectedAddress);
-        onConnect(wallet, wallet.selectedAddress);
-      }
-    };
-    connectToStarknet();
+    // Vérifier si le wallet est déjà connecté au chargement
+    const walletState = getWalletState();
+    if (walletState.isConnected && walletState.address) {
+      setAddress(walletState.address);
+      onConnect(walletState.address);
+    }
   }, [onConnect]);
 
-  const connectWallet = async () => {
-    const { wallet } = await connect({
-      connectors: [
-        new InjectedConnector({ options: { id: "argentX" } }),
-        new InjectedConnector({ options: { id: "braavos" } }),
-        new WebWalletConnector({ url: "https://web.argent.xyz" }),
-      ],
-      modalMode: "alwaysAsk",
-      modalTheme: "dark",
-    });
-    if (wallet && wallet.isConnected) {
-      setConnection(wallet);
-      setAddress(wallet.selectedAddress);
-      onConnect(wallet, wallet.selectedAddress);
+  const handleConnect = async () => {
+    try {
+      setIsConnecting(true);
+      const result = await connect();
+      setAddress(result.address);
+      onConnect(result.address);
+    } catch (error) {
+      console.error("Connect failed:", error);
+    } finally {
+      setIsConnecting(false);
     }
   };
 
-  const disconnectWallet = async () => {
-    await disconnect();
-    setConnection(undefined);
-    setAddress(undefined);
-    onConnect(undefined, undefined);
+  const handleDisconnect = async () => {
+    try {
+      await disconnect();
+      setAddress(undefined);
+      onConnect(undefined);
+    } catch (error) {
+      console.error("Disconnect failed:", error);
+    }
   };
-
-  useEffect(() => {
-    const handleAccountsChange = (accounts?: string[]) => {
-      if (accounts && accounts.length > 0) {
-        setAddress(accounts[0]);
-        onConnect(connection, accounts[0]);
-      } else {
-        setAddress(undefined);
-        onConnect(undefined, undefined);
-      }
-    };
-    connection?.on("accountsChanged", handleAccountsChange);
-    return () => connection?.off("accountsChanged", handleAccountsChange);
-  }, [connection, onConnect]);
 
   return (
     <div className="fixed top-0 left-0 right-0 z-50 bg-gray-900/20 backdrop-blur-md border-b border-gray-700/30">
       <div className="container mx-auto max-w-7xl py-4 px-4 flex items-center justify-between">
         <img src={logo} alt="StarkWolf Logo" className="h-10 w-auto object-contain" />
         <button
-          onClick={address ? disconnectWallet : connectWallet}
-          className="bg-gradient-to-r from-red-900 to-red-800 hover:from-red-800 hover:to-red-700 text-gray-100 font-semibold rounded-lg px-6 py-2 flex items-center gap-2 transition-all shadow-lg shadow-red-900/50"
+          onClick={address ? handleDisconnect : handleConnect}
+          disabled={isConnecting}
+          className={`bg-gradient-to-r from-red-900 to-red-800 hover:from-red-800 hover:to-red-700 text-gray-100 font-semibold rounded-lg px-6 py-2 flex items-center gap-2 transition-all shadow-lg shadow-red-900/50 ${isConnecting ? 'opacity-70 cursor-not-allowed' : ''}`}
         >
-          <Wallet size={20} />
-          {address ? `${address.slice(0, 6)}...${address.slice(-4)}` : 'Connect Wallet'}
+          {isConnecting ? (
+            <>
+              <Clock className="animate-spin" size={20} />
+              Connecting...
+            </>
+          ) : (
+            <>
+              <Wallet size={20} />
+              {address ? `${address.slice(0, 6)}...${address.slice(-4)}` : 'Connect Wallet'}
+            </>
+          )}
         </button>
       </div>
     </div>
@@ -119,11 +103,11 @@ const Header = ({ onConnect }: { onConnect: (wallet: StarknetWindowObject | unde
 /** JoinGameSection Component */
 const JoinGameSection = forwardRef<HTMLDivElement, LobbyProps>((props, ref) => {
   const [joinGameCode, setJoinGameCode] = useState('');
-  const [connectedAddress, setConnectedAddress] = useState<string | undefined>();
   const [error, setError] = useState<string | null>(null);
+  const [isCreatingGame, setIsCreatingGame] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
   const provider = new RpcProvider({ nodeUrl: 'https://api.cartridge.gg/x/starkwolf/katana' });
   const contractAddress = '0x030caf705ec459e733e170c2ca7603642ae1ce52eaa3ac535f503c3a2ec6263e';
-  const contract = new Contract(abiData.abi, contractAddress, provider);
 
   // Load bot accounts from .env
   const botAccounts: { address: string; privateKey: string }[] = Array.from({ length: 7 }, (_, i) => ({
@@ -132,47 +116,65 @@ const JoinGameSection = forwardRef<HTMLDivElement, LobbyProps>((props, ref) => {
   })).filter(account => account.address && account.privateKey);
 
   const connectWallet = async () => {
-    const { wallet } = await connect({
-      connectors: [
-        new InjectedConnector({ options: { id: "argentX" } }),
-        new InjectedConnector({ options: { id: "braavos" } }),
-        new WebWalletConnector({ url: "https://web.argent.xyz" }),
-      ],
-      modalMode: "alwaysAsk",
-      modalTheme: "dark",
-    });
-    if (wallet && wallet.isConnected) {
-      setConnectedAddress(wallet.selectedAddress);
-      // Type assertion to handle ConnectedStarknetWindowObject
-      contract.connect(wallet as any); // Temporary workaround; ideally, extend types
+    try {
+      setError(null);
+      setIsConnecting(true);
+      const result = await connect();
+      return !!result.address;
+    } catch (error) {
+      console.error("Connect failed:", error);
+      setError(error instanceof Error ? error.message : "Failed to connect wallet. Please try again.");
+      return false;
+    } finally {
+      setIsConnecting(false);
     }
   };
 
   const handleCreateGame = async () => {
-    if (!connectedAddress) {
-      await connectWallet();
-      if (!connectedAddress) {
+    try {
+      setError(null);
+      setIsCreatingGame(true);
+
+      const walletState = getWalletState();
+      if (!walletState.isConnected || !walletState.address) {
+        const connected = await connectWallet();
+        if (!connected) {
+          setError("Wallet connection failed. Please connect your wallet.");
+          return;
+        }
+      }
+
+      const { address, account } = getWalletState();
+      if (!address || !account) {
         setError("Wallet connection failed. Please connect your wallet.");
         return;
       }
-    }
 
-    if (botAccounts.length !== 7) {
-      setError("Exactly 7 bot accounts must be defined in .env.");
-      console.error("Bot accounts loaded:", botAccounts);
-      return;
-    }
+      if (botAccounts.length !== 7) {
+        setError("Exactly 7 bot accounts must be defined in .env.");
+        console.error("Bot accounts loaded:", botAccounts);
+        return;
+      }
 
-    try {
       const gameId = Math.floor(Math.random() * 1000);
-      const players = [connectedAddress, ...botAccounts.map(bot => bot.address)];
+      const players = [address, ...botAccounts.map(bot => bot.address)];
 
-      // Check if game already exists (mimicking bot.ts)
+      if (players.length !== 8) {
+        setError("Invalid number of players");
+        return;
+      }
+
+      const contract = createContract(abiData.abi, contractAddress);
+
       try {
         const gameState = await contract.get_game_state(gameId);
         console.log('Existing game state:', gameState);
         throw new Error('Game already exists with this ID');
-      } catch (error) {
+      } catch (error: any) {
+        if (error.message.includes('Game already exists')) {
+          setError("Game ID already exists. Please try again.");
+          return;
+        }
         console.log('No existing game found, creating new game...');
       }
 
@@ -186,8 +188,10 @@ const JoinGameSection = forwardRef<HTMLDivElement, LobbyProps>((props, ref) => {
       console.log('Game created successfully with ID:', gameId);
       props.onJoinGame(`HUNT-${gameId}`);
     } catch (err) {
-      setError("Failed to create game. Check console for details.");
       console.error("Game creation error:", err);
+      setError(err instanceof Error ? err.message : "Failed to create game. Please try again.");
+    } finally {
+      setIsCreatingGame(false);
     }
   };
 
@@ -229,12 +233,35 @@ const JoinGameSection = forwardRef<HTMLDivElement, LobbyProps>((props, ref) => {
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               onClick={handleCreateGame}
-              className="w-full bg-gray-900/50 hover:bg-gray-900/70 text-red-300 font-serif font-bold rounded-lg px-6 py-4 flex items-center justify-center gap-3 transition-all duration-300 border border-red-900/40 shadow-lg"
+              disabled={isConnecting || isCreatingGame}
+              className={`w-full bg-gray-900/50 hover:bg-gray-900/70 text-red-300 font-serif font-bold rounded-lg px-6 py-4 flex items-center justify-center gap-3 transition-all duration-300 border border-red-900/40 shadow-lg ${(isConnecting || isCreatingGame) ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
-              <Plus size={24} />
-              Summon a New Hunt
+              {isConnecting ? (
+                <>
+                  <Clock className="animate-spin" size={24} />
+                  Connecting...
+                </>
+              ) : isCreatingGame ? (
+                <>
+                  <Clock className="animate-spin" size={24} />
+                  Creating Game...
+                </>
+              ) : (
+                <>
+                  <Plus size={24} />
+                  Summon a New Hunt
+                </>
+              )}
             </motion.button>
-            {error && <p className="text-red-500 text-sm">{error}</p>}
+            {error && (
+              <motion.p
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="text-red-500 text-sm bg-red-950/20 p-3 rounded-lg border border-red-900/30"
+              >
+                {error}
+              </motion.p>
+            )}
           </motion.div>
         </div>
       </motion.div>
@@ -351,7 +378,7 @@ const InfiniteLinearCarousel = ({ roles }: { roles: Role[] }) => {
         </button>
         <div className="flex items-center justify-center w-full h-full">
           <AnimatePresence initial={false} custom={direction}>
-            {getVisibleItems().map(({ element, position }, idx) => (
+            {getVisibleItems().map(({ element, position }) => (
               <motion.div
                 key={`${currentIndex}-${position}`}
                 onClick={() => handleItemClick(position)}
@@ -417,7 +444,6 @@ const Footer = forwardRef<HTMLDivElement>((props, ref) => (
 
 /** Main Lobby Component */
 export default function Lobby({ onJoinGame }: LobbyProps) {
-  const [connection, setConnection] = useState<StarknetWindowObject | undefined>();
   const [connectedAddress, setConnectedAddress] = useState<string | undefined>();
 
   const roles: Role[] = [
@@ -433,8 +459,7 @@ export default function Lobby({ onJoinGame }: LobbyProps) {
   const rolesSectionRef = React.useRef<HTMLDivElement>(null);
   const footerRef = React.useRef<HTMLDivElement>(null);
 
-  const handleConnect = (wallet: StarknetWindowObject | undefined, address: string | undefined) => {
-    setConnection(wallet);
+  const handleConnect = (address: string | undefined) => {
     setConnectedAddress(address);
   };
 
