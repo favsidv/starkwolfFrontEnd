@@ -1,4 +1,3 @@
-import React from "react";
 export const BackgroundStars = () => {
   return (
     <div className="relative w-full h-full min-h-screen overflow-hidden">

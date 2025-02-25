@@ -1,18 +1,15 @@
-import React, { useState, useEffect, cloneElement, forwardRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Users, Plus, ArrowRight, X, Clock, Check, Wallet, ChevronLeft, ChevronRight } from 'lucide-react';
-import defaultAvatar from '../assets/default-avatar.png';
-import logo from '../assets/logo.webp';
+import { Plus, ArrowRight, Wallet, ChevronLeft, ChevronRight } from 'lucide-react';
+import logo from '../assets/images/logos/logo.webp';
 import { connect, disconnect, StarknetWindowObject } from "starknetkit";
 import { InjectedConnector } from "starknetkit/injected";
 import { WebWalletConnector } from "starknetkit/webwallet";
-import Background from '../assets/background.svg';
-import BackgroundNoSky from '../assets/backgroundnosky.webp';
+import Background from '../assets/images/backgrounds/background.svg';
+import BackgroundNoSky from '../assets/images/backgrounds/backgroundnosky.webp';
 import { BackgroundStars } from './Background.tsx';
 import { RpcProvider, Contract, CallData } from 'starknet';
-import abiData from '../../tests/abi_actions.json'; // Correct ABI path
-
-// Role card imports
+import abiData from '../../tests/abi_actions.json';
 import villagerCard from '../assets/cards/villager.webp';
 import werewolfCard from '../assets/cards/werewolf.webp';
 import seerCard from '../assets/cards/seer.webp';
@@ -25,22 +22,13 @@ interface LobbyProps {
   onJoinGame: (gameId: string) => void;
 }
 
-interface Player {
-  id: string;
-  name: string;
-  avatar: string;
-  isReady: boolean;
-  address: string;
-}
-
 interface Role {
   image: string;
   name: string;
   description: string;
 }
 
-/** Header Component */
-const Header = ({ onConnect }: { onConnect: (wallet: StarknetWindowObject | undefined, address: string | undefined) => void }) => {
+const Header = ({ onConnect }: { onConnect: (wallet?: StarknetWindowObject, address?: string) => void }) => {
   const [connection, setConnection] = useState<StarknetWindowObject>();
   const [address, setAddress] = useState<string>();
 
@@ -53,7 +41,7 @@ const Header = ({ onConnect }: { onConnect: (wallet: StarknetWindowObject | unde
         ],
         modalMode: "neverAsk",
       });
-      if (wallet && wallet.isConnected) {
+      if (wallet?.isConnected) {
         setConnection(wallet);
         setAddress(wallet.selectedAddress);
         onConnect(wallet, wallet.selectedAddress);
@@ -72,7 +60,7 @@ const Header = ({ onConnect }: { onConnect: (wallet: StarknetWindowObject | unde
       modalMode: "alwaysAsk",
       modalTheme: "dark",
     });
-    if (wallet && wallet.isConnected) {
+    if (wallet?.isConnected) {
       setConnection(wallet);
       setAddress(wallet.selectedAddress);
       onConnect(wallet, wallet.selectedAddress);
@@ -88,7 +76,7 @@ const Header = ({ onConnect }: { onConnect: (wallet: StarknetWindowObject | unde
 
   useEffect(() => {
     const handleAccountsChange = (accounts?: string[]) => {
-      if (accounts && accounts.length > 0) {
+      if (accounts?.length) {
         setAddress(accounts[0]);
         onConnect(connection, accounts[0]);
       } else {
@@ -116,17 +104,14 @@ const Header = ({ onConnect }: { onConnect: (wallet: StarknetWindowObject | unde
   );
 };
 
-/** JoinGameSection Component */
-const JoinGameSection = forwardRef<HTMLDivElement, LobbyProps>((props, ref) => {
+const JoinGameSection = React.forwardRef<HTMLDivElement, LobbyProps>((props, ref) => {
   const [joinGameCode, setJoinGameCode] = useState('');
-  const [connectedAddress, setConnectedAddress] = useState<string | undefined>();
+  const [connectedAddress, setConnectedAddress] = useState<string>();
   const [error, setError] = useState<string | null>(null);
   const provider = new RpcProvider({ nodeUrl: 'https://api.cartridge.gg/x/starkwolf/katana' });
-  const contractAddress = '0x030caf705ec459e733e170c2ca7603642ae1ce52eaa3ac535f503c3a2ec6263e';
-  const contract = new Contract(abiData.abi, contractAddress, provider);
+  const contract = new Contract(abiData.abi, '0x030caf705ec459e733e170c2ca7603642ae1ce52eaa3ac535f503c3a2ec6263e', provider);
 
-  // Load bot accounts from .env
-  const botAccounts: { address: string; privateKey: string }[] = Array.from({ length: 7 }, (_, i) => ({
+  const botAccounts = Array.from({ length: 7 }, (_, i) => ({
     address: import.meta.env[`PLAYER${i}_ADDRESS`] as string,
     privateKey: import.meta.env[`PLAYER${i}_PRIVATE_KEY`] as string,
   })).filter(account => account.address && account.privateKey);
@@ -141,10 +126,9 @@ const JoinGameSection = forwardRef<HTMLDivElement, LobbyProps>((props, ref) => {
       modalMode: "alwaysAsk",
       modalTheme: "dark",
     });
-    if (wallet && wallet.isConnected) {
+    if (wallet?.isConnected) {
       setConnectedAddress(wallet.selectedAddress);
-      // Type assertion to handle ConnectedStarknetWindowObject
-      contract.connect(wallet as any); // Temporary workaround; ideally, extend types
+      contract.connect(wallet as any);
     }
   };
 
@@ -167,7 +151,6 @@ const JoinGameSection = forwardRef<HTMLDivElement, LobbyProps>((props, ref) => {
       const gameId = Math.floor(Math.random() * 1000);
       const players = [connectedAddress, ...botAccounts.map(bot => bot.address)];
 
-      // Check if game already exists (mimicking bot.ts)
       try {
         const gameState = await contract.get_game_state(gameId);
         console.log('Existing game state:', gameState);
@@ -176,11 +159,7 @@ const JoinGameSection = forwardRef<HTMLDivElement, LobbyProps>((props, ref) => {
         console.log('No existing game found, creating new game...');
       }
 
-      const calldata = CallData.compile({
-        game_id: gameId,
-        players: players,
-      });
-
+      const calldata = CallData.compile({ game_id: gameId, players });
       const tx = await contract.start_game(calldata);
       await provider.waitForTransaction(tx.transaction_hash);
       console.log('Game created successfully with ID:', gameId);
@@ -242,13 +221,7 @@ const JoinGameSection = forwardRef<HTMLDivElement, LobbyProps>((props, ref) => {
   );
 });
 
-/** RoleCard Component */
-interface RoleCardProps {
-  role: Role;
-  isActive?: boolean;
-  isAdjacent?: boolean;
-}
-const RoleCard: React.FC<RoleCardProps> = ({ role, isActive = false }) => {
+const RoleCard = ({ role, isActive = false }: { role: Role; isActive?: boolean }) => {
   const [isHovered, setIsHovered] = useState(false);
 
   return (
@@ -258,7 +231,7 @@ const RoleCard: React.FC<RoleCardProps> = ({ role, isActive = false }) => {
       animate={{ opacity: 1, scale: isActive ? 1 : 0.9, rotate: 0 }}
       transition={{ duration: 0.5, ease: 'easeInOut' }}
       onHoverStart={() => isActive && setIsHovered(true)}
-      onHoverEnd={() => isActive && setIsHovered(false)}
+      onHoverEnd={() => setIsHovered(false)}
     >
       <motion.img
         src={role.image}
@@ -282,31 +255,28 @@ const RoleCard: React.FC<RoleCardProps> = ({ role, isActive = false }) => {
             animate={{ opacity: 0.5 }}
             transition={{ duration: 0.5, ease: 'easeInOut' }}
           />
+          <motion.div
+            className="absolute bottom-0 left-0 right-0 p-4 z-10"
+            initial={{ y: 20, opacity: 0 }}
+            animate={{ y: isHovered ? -50 : 0, opacity: 1 }}
+            transition={{ duration: 0.3, ease: 'easeInOut' }}
+          >
+            <h3 className="text-xl md:text-2xl font-serif font-bold text-red-500 drop-shadow-md">{role.name}</h3>
+            <motion.p
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: isHovered ? 1 : 0, y: isHovered ? 0 : 20 }}
+              transition={{ duration: 0.3, ease: 'easeInOut' }}
+              className="text-sm md:text-base text-red-100 mt-2 drop-shadow-md"
+            >
+              {role.description}
+            </motion.p>
+          </motion.div>
         </>
       )}
-      <motion.div
-        className="absolute bottom-0 left-0 right-0 p-4 z-10"
-        initial={{ y: 20, opacity: 0 }}
-        animate={{ y: isHovered && isActive ? -50 : 0, opacity: 1 }}
-        transition={{ duration: 0.3, ease: 'easeInOut' }}
-      >
-        <h3 className="text-xl md:text-2xl font-serif font-bold text-red-500 drop-shadow-md">{role.name}</h3>
-        {isActive && (
-          <motion.p
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: isHovered ? 1 : 0, y: isHovered ? 0 : 20 }}
-            transition={{ duration: 0.3, ease: 'easeInOut' }}
-            className="text-sm md:text-base text-red-100 mt-2 drop-shadow-md"
-          >
-            {role.description}
-          </motion.p>
-        )}
-      </motion.div>
     </motion.div>
   );
 };
 
-/** InfiniteLinearCarousel Component */
 const InfiniteLinearCarousel = ({ roles }: { roles: Role[] }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [direction, setDirection] = useState<'left' | 'right'>('right');
@@ -316,10 +286,7 @@ const InfiniteLinearCarousel = ({ roles }: { roles: Role[] }) => {
     const items = [];
     for (let i = -3; i <= 3; i++) {
       const index = (currentIndex + i + totalItems) % totalItems;
-      items.push({
-        element: <RoleCard role={roles[index]} isAdjacent={Math.abs(i) === 1} />,
-        position: i,
-      });
+      items.push({ element: <RoleCard role={roles[index]} />, position: i });
     }
     return items;
   };
@@ -351,29 +318,23 @@ const InfiniteLinearCarousel = ({ roles }: { roles: Role[] }) => {
         </button>
         <div className="flex items-center justify-center w-full h-full">
           <AnimatePresence initial={false} custom={direction}>
-            {getVisibleItems().map(({ element, position }, idx) => (
+            {getVisibleItems().map(({ element, position }) => (
               <motion.div
                 key={`${currentIndex}-${position}`}
                 onClick={() => handleItemClick(position)}
                 className="cursor-pointer absolute"
                 custom={direction}
-                initial={{ 
-                  x: direction === 'right' ? (position + 1) * 304 : (position - 1) * 304,
-                  opacity: 0 
-                }}
+                initial={{ x: direction === 'right' ? (position + 1) * 304 : (position - 1) * 304, opacity: 0 }}
                 animate={{
                   x: position * 304,
                   scale: position === 0 ? 1 : 0.8 - Math.abs(position) * 0.1,
                   zIndex: 10 - Math.abs(position),
                   opacity: 1 - Math.abs(position) * 0.2,
                 }}
-                exit={{ 
-                  x: direction === 'right' ? (position - 1) * 304 : (position + 1) * 304,
-                  opacity: 0 
-                }}
+                exit={{ x: direction === 'right' ? (position - 1) * 304 : (position + 1) * 304, opacity: 0 }}
                 transition={{ duration: 0.5, ease: 'easeInOut' }}
               >
-                {cloneElement(element as React.ReactElement, { isActive: position === 0 })}
+                {React.cloneElement(element, { isActive: position === 0 })}
               </motion.div>
             ))}
           </AnimatePresence>
@@ -399,8 +360,7 @@ const InfiniteLinearCarousel = ({ roles }: { roles: Role[] }) => {
   );
 };
 
-/** Footer Component */
-const Footer = forwardRef<HTMLDivElement>((props, ref) => (
+const Footer = React.forwardRef<HTMLDivElement>((_, ref) => (
   <footer ref={ref} className="bg-gray-950/90 border-t border-red-900/30 py-6 w-full snap-stop mt-auto">
     <div className="mx-auto px-4 w-full">
       <div className="flex flex-col md:flex-row justify-between items-center text-gray-400 max-w-7xl mx-auto">
@@ -415,10 +375,10 @@ const Footer = forwardRef<HTMLDivElement>((props, ref) => (
   </footer>
 ));
 
-/** Main Lobby Component */
 export default function Lobby({ onJoinGame }: LobbyProps) {
-  const [connection, setConnection] = useState<StarknetWindowObject | undefined>();
-  const [connectedAddress, setConnectedAddress] = useState<string | undefined>();
+  const [, setWallet] = useState<StarknetWindowObject>();
+  const rolesSectionRef = React.useRef<HTMLDivElement>(null);
+  const footerRef = React.useRef<HTMLDivElement>(null);
 
   const roles: Role[] = [
     { image: villagerCard, name: "Villager", description: "A simple townsfolk trying to survive and root out the werewolves." },
@@ -429,14 +389,6 @@ export default function Lobby({ onJoinGame }: LobbyProps) {
     { image: witchCard, name: "Witch", description: "A crafty spellcaster with a potion to heal and a poison to kill, used once each." },
     { image: guardCard, name: "Guard", description: "A protector who can shield one player from death each night." },
   ];
-
-  const rolesSectionRef = React.useRef<HTMLDivElement>(null);
-  const footerRef = React.useRef<HTMLDivElement>(null);
-
-  const handleConnect = (wallet: StarknetWindowObject | undefined, address: string | undefined) => {
-    setConnection(wallet);
-    setConnectedAddress(address);
-  };
 
   useEffect(() => {
     const observer = new IntersectionObserver(
@@ -474,7 +426,7 @@ export default function Lobby({ onJoinGame }: LobbyProps) {
       </div>
 
       <div className="relative z-10 flex flex-col min-h-screen">
-        <Header onConnect={handleConnect} />
+        <Header onConnect={setWallet} />
         <section className="min-h-screen flex items-center justify-center snap-start">
           <motion.div
             initial={{ opacity: 0, y: 50 }}
@@ -490,7 +442,7 @@ export default function Lobby({ onJoinGame }: LobbyProps) {
             </p>
           </motion.div>
         </section>
-        <JoinGameSection onJoinGame={onJoinGame} />
+        <JoinGameSection onJoinGame={onJoinGame} ref={rolesSectionRef} />
         <section ref={rolesSectionRef} className="min-h-screen flex flex-col items-center justify-center snap-start py-16">
           <motion.div
             initial={{ opacity: 0, y: 50 }}
@@ -516,48 +468,13 @@ export default function Lobby({ onJoinGame }: LobbyProps) {
           font-style: normal;
           font-display: swap;
         }
-
-        .font-clash-display {
-          font-family: 'Clash Display', sans-serif;
-        }
-
-        html, body {
-          height: 100%;
-          margin: 0;
-          padding: 0;
-          overscroll-behavior-y: none;
-          scroll-snap-type: y mandatory;
-        }
-
-        .snap-y {
-          height: 100vh;
-          overflow-y: scroll;
-          -webkit-overflow-scrolling: touch;
-        }
-
-        .snap-start {
-          scroll-snap-align: start;
-          height: 100vh;
-          display: flex;
-          flex-direction: column;
-          justify-content: center;
-          position: relative;
-        }
-
-        .snap-stop {
-          scroll-snap-align: start;
-          scroll-snap-stop: always;
-        }
-
-        @keyframes pulse-slow {
-          0% { text-shadow: 0 0 20px rgba(153, 27, 27, 0.5); }
-          50% { text-shadow: 0 0 30px rgba(153, 27, 27, 0.7); }
-          100% { text-shadow: 0 0 20px rgba(153, 27, 27, 0.5); }
-        }
-
-        .animate-pulse-slow {
-          animation: pulse-slow 5s ease-in-out infinite;
-        }
+        .font-clash-display { font-family: 'Clash Display', sans-serif; }
+        html, body { height: 100%; margin: 0; padding: 0; overscroll-behavior-y: none; scroll-snap-type: y mandatory; }
+        .snap-y { height: 100vh; overflow-y: scroll; -webkit-overflow-scrolling: touch; }
+        .snap-start { scroll-snap-align: start; height: 100vh; display: flex; flex-direction: column; justify-content: center; position: relative; }
+        .snap-stop { scroll-snap-align: start; scroll-snap-stop: always; }
+        @keyframes pulse-slow { 0% { text-shadow: 0 0 20px rgba(153, 27, 27, 0.5); } 50% { text-shadow: 0 0 30px rgba(153, 27, 27, 0.7); } 100% { text-shadow: 0 0 20px rgba(153, 27, 27, 0.5); } }
+        .animate-pulse-slow { animation: pulse-slow 5s ease-in-out infinite; }
       `}</style>
     </div>
   );
