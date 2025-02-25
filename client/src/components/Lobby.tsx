@@ -1,22 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { Plus, ArrowRight, Wallet, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
 import logo from '../assets/images/logos/logo.webp';
-import { connect, disconnect, StarknetWindowObject } from "starknetkit";
-import { InjectedConnector } from "starknetkit/injected";
-import { WebWalletConnector } from "starknetkit/webwallet";
+import WalletConnector from './WalletConnector';
 import Background from '../assets/images/backgrounds/background.svg';
 import BackgroundNoSky from '../assets/images/backgrounds/backgroundnosky.webp';
 import { BackgroundStars } from './Background.tsx';
 import { RpcProvider, Contract, CallData } from 'starknet';
+import { StarknetWindowObject } from "starknetkit";
 import abiData from '../../tests/abi_actions.json';
-import villagerCard from '../assets/cards/villager.webp';
-import werewolfCard from '../assets/cards/werewolf.webp';
-import seerCard from '../assets/cards/seer.webp';
-import hunterCard from '../assets/cards/hunter.webp';
-import cupidCard from '../assets/cards/cupid.webp';
-import witchCard from '../assets/cards/witch.webp';
-import guardCard from '../assets/cards/guard.webp';
+import villagerCard from '../assets/images/cards/villager.webp';
+import werewolfCard from '../assets/images/cards/werewolf.webp';
+import seerCard from '../assets/images/cards/seer.webp';
+import hunterCard from '../assets/images/cards/hunter.webp';
+import cupidCard from '../assets/images/cards/cupid.webp';
+import witchCard from '../assets/images/cards/witch.webp';
+import guardCard from '../assets/images/cards/guard.webp';
 
 interface LobbyProps {
   onJoinGame: (gameId: string) => void;
@@ -28,199 +27,128 @@ interface Role {
   description: string;
 }
 
+// Composant Header
 const Header = ({ onConnect }: { onConnect: (wallet?: StarknetWindowObject, address?: string) => void }) => {
-  const [connection, setConnection] = useState<StarknetWindowObject>();
-  const [address, setAddress] = useState<string>();
-
-  useEffect(() => {
-    const connectToStarknet = async () => {
-      const { wallet } = await connect({
-        connectors: [
-          new InjectedConnector({ options: { id: "argentX" } }),
-          new InjectedConnector({ options: { id: "braavos" } }),
-        ],
-        modalMode: "neverAsk",
-      });
-      if (wallet?.isConnected) {
-        setConnection(wallet);
-        setAddress(wallet.selectedAddress);
-        onConnect(wallet, wallet.selectedAddress);
-      }
-    };
-    connectToStarknet();
-  }, [onConnect]);
-
-  const connectWallet = async () => {
-    const { wallet } = await connect({
-      connectors: [
-        new InjectedConnector({ options: { id: "argentX" } }),
-        new InjectedConnector({ options: { id: "braavos" } }),
-        new WebWalletConnector({ url: "https://web.argent.xyz" }),
-      ],
-      modalMode: "alwaysAsk",
-      modalTheme: "dark",
-    });
-    if (wallet?.isConnected) {
-      setConnection(wallet);
-      setAddress(wallet.selectedAddress);
-      onConnect(wallet, wallet.selectedAddress);
-    }
-  };
-
-  const disconnectWallet = async () => {
-    await disconnect();
-    setConnection(undefined);
-    setAddress(undefined);
-    onConnect(undefined, undefined);
-  };
-
-  useEffect(() => {
-    const handleAccountsChange = (accounts?: string[]) => {
-      if (accounts?.length) {
-        setAddress(accounts[0]);
-        onConnect(connection, accounts[0]);
-      } else {
-        setAddress(undefined);
-        onConnect(undefined, undefined);
-      }
-    };
-    connection?.on("accountsChanged", handleAccountsChange);
-    return () => connection?.off("accountsChanged", handleAccountsChange);
-  }, [connection, onConnect]);
-
   return (
     <div className="fixed top-0 left-0 right-0 z-50 bg-gray-900/20 backdrop-blur-md border-b border-gray-700/30">
       <div className="container mx-auto max-w-7xl py-4 px-4 flex items-center justify-between">
         <img src={logo} alt="StarkWolf Logo" className="h-10 w-auto object-contain" />
-        <button
-          onClick={address ? disconnectWallet : connectWallet}
-          className="bg-gradient-to-r from-red-900 to-red-800 hover:from-red-800 hover:to-red-700 text-gray-100 font-semibold rounded-lg px-6 py-2 flex items-center gap-2 transition-all shadow-lg shadow-red-900/50"
-        >
-          <Wallet size={20} />
-          {address ? `${address.slice(0, 6)}...${address.slice(-4)}` : 'Connect Wallet'}
-        </button>
+        <WalletConnector onConnect={onConnect} />
       </div>
     </div>
   );
 };
 
-const JoinGameSection = React.forwardRef<HTMLDivElement, LobbyProps>((props, ref) => {
-  const [joinGameCode, setJoinGameCode] = useState('');
-  const [connectedAddress, setConnectedAddress] = useState<string>();
-  const [error, setError] = useState<string | null>(null);
-  const provider = new RpcProvider({ nodeUrl: 'https://api.cartridge.gg/x/starkwolf/katana' });
-  const contract = new Contract(abiData.abi, '0x030caf705ec459e733e170c2ca7603642ae1ce52eaa3ac535f503c3a2ec6263e', provider);
+// Composant JoinGameSection
+const JoinGameSection = React.forwardRef<HTMLDivElement, LobbyProps & { wallet?: StarknetWindowObject; address?: string }>(
+  ({ wallet, address, onJoinGame }, ref) => {
+    const [error, setError] = useState<string | null>(null);
+    const [isCreating, setIsCreating] = useState(false); // État pour indiquer la création en cours
+    const provider = new RpcProvider({ nodeUrl: 'https://api.cartridge.gg/x/starknet/sepolia' });
+    const contract = new Contract(abiData.abi, '0x02f5c289133869e42ddf01b1c6dbf6b17d06f19ebf2105b118ac892cb3a1b8c9', provider);
 
-  const botAccounts = Array.from({ length: 7 }, (_, i) => ({
-    address: import.meta.env[`PLAYER${i}_ADDRESS`] as string,
-    privateKey: import.meta.env[`PLAYER${i}_PRIVATE_KEY`] as string,
-  })).filter(account => account.address && account.privateKey);
+    const botAccounts = Array.from({ length: 7 }, (_, i) => {
+      const address = import.meta.env[`VITE_PLAYER${i}_ADDRESS`];
+      const privateKey = import.meta.env[`VITE_PLAYER${i}_PRIVATE_KEY`];
+      console.log(`PLAYER${i}_ADDRESS:`, address);
+      console.log(`PLAYER${i}_PRIVATE_KEY:`, privateKey);
+      return {
+        address: address as string,
+        privateKey: privateKey as string,
+      };
+    }).filter(account => account.address && account.privateKey);
 
-  const connectWallet = async () => {
-    const { wallet } = await connect({
-      connectors: [
-        new InjectedConnector({ options: { id: "argentX" } }),
-        new InjectedConnector({ options: { id: "braavos" } }),
-        new WebWalletConnector({ url: "https://web.argent.xyz" }),
-      ],
-      modalMode: "alwaysAsk",
-      modalTheme: "dark",
-    });
-    if (wallet?.isConnected) {
-      setConnectedAddress(wallet.selectedAddress);
-      contract.connect(wallet as any);
-    }
-  };
-
-  const handleCreateGame = async () => {
-    if (!connectedAddress) {
-      await connectWallet();
-      if (!connectedAddress) {
-        setError("Wallet connection failed. Please connect your wallet.");
+    const handleCreateGame = async () => {
+      if (!address || !wallet) {
+        setError("Veuillez d'abord connecter votre wallet.");
         return;
       }
-    }
-
-    if (botAccounts.length !== 7) {
-      setError("Exactly 7 bot accounts must be defined in .env.");
-      console.error("Bot accounts loaded:", botAccounts);
-      return;
-    }
-
-    try {
-      const gameId = Math.floor(Math.random() * 1000);
-      const players = [connectedAddress, ...botAccounts.map(bot => bot.address)];
-
-      try {
-        const gameState = await contract.get_game_state(gameId);
-        console.log('Existing game state:', gameState);
-        throw new Error('Game already exists with this ID');
-      } catch (error) {
-        console.log('No existing game found, creating new game...');
+    
+      if (botAccounts.length !== 7) {
+        setError("Exactement 7 comptes bots doivent être définis dans .env.");
+        console.error("Comptes bots chargés:", botAccounts);
+        return;
       }
+    
+      setIsCreating(true); // Indiquer que la création commence
+      try {
+        const gameId = Math.floor(Math.random() * 1000);
+        const players = [address, ...botAccounts.map(bot => bot.address)];
+    
+        try {
+          const gameState = await contract.call('get_game_state', [gameId]);
+          console.log('État du jeu existant:', gameState);
+          throw new Error('Un jeu existe déjà avec cet ID');
+        } catch (error) {
+          console.log('Aucun jeu existant trouvé, création d\'un nouveau jeu...');
+        }
+    
+        const calldata = CallData.compile({ game_id: gameId, players });
+    
+        const tx = await wallet.account.execute({
+          contractAddress: contract.address,
+          entrypoint: 'start_game',
+          calldata,
+        });
+    
+        console.log("Transaction envoyée:", tx);
+    
+        await provider.waitForTransaction(tx.transaction_hash);
+        console.log('Jeu créé avec succès avec l\'ID:', gameId);
+    
+        onJoinGame(`HUNT-${gameId}`);
+      } catch (err) {
+        setError("Échec de la création du jeu. Consultez la console pour plus de détails.");
+        console.error("Erreur de création du jeu:", err);
+      } finally {
+        setIsCreating(false); // Remettre l'état à faux après la fin
+      }
+    };
 
-      const calldata = CallData.compile({ game_id: gameId, players });
-      const tx = await contract.start_game(calldata);
-      await provider.waitForTransaction(tx.transaction_hash);
-      console.log('Game created successfully with ID:', gameId);
-      props.onJoinGame(`HUNT-${gameId}`);
-    } catch (err) {
-      setError("Failed to create game. Check console for details.");
-      console.error("Game creation error:", err);
-    }
-  };
-
-  return (
-    <section ref={ref} className="min-h-screen snap-start flex items-center justify-center px-8">
-      <motion.div
-        initial={{ opacity: 0, y: 50 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 1 }}
-        className="w-full max-w-5xl space-y-12"
-      >
-        <h2 className="text-5xl font-serif font-bold text-red-800 text-center drop-shadow-md">Join the Night's Hunt</h2>
-        <div className="grid md:grid-cols-2 gap-12">
+    return (
+      <section ref={ref} className="min-h-screen snap-start flex items-center justify-center px-8">
+        <motion.div
+          initial={{ opacity: 0, y: 50 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 1 }}
+          className="w-full max-w-5xl space-y-12 text-center"
+        >
+          <h2 className="text-5xl font-serif font-bold text-red-800 drop-shadow-md">Join the Night's Hunt</h2>
           <motion.div
-            className="space-y-6 bg-gray-950/40 p-8 rounded-xl border border-red-900/30 backdrop-blur-md shadow-lg"
-            initial={{ opacity: 0, x: -50 }}
-            animate={{ opacity: 1, x: 0 }}
+            className="space-y-6 bg-gray-950/40 p-8 rounded-xl border border-red-900/30 backdrop-blur-md shadow-lg max-w-md mx-auto"
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8, delay: 0.2 }}
           >
-            <h3 className="text-3xl font-serif text-red-400">Enter the Fray</h3>
-            <div className="flex gap-4">
-              <input
-                type="text"
-                placeholder="Enter hunt code"
-                value={joinGameCode}
-                onChange={(e) => setJoinGameCode(e.target.value)}
-                className="flex-1 bg-gray-900/60 rounded-lg px-4 py-3 text-lg text-gray-200 placeholder-gray-500 border border-red-900/40 focus:border-red-800 focus:outline-none transition-all duration-300"
-              />
-              <motion.button
-                whileHover={{ scale: 1.1 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => joinGameCode && props.onJoinGame(joinGameCode)}
-                className="bg-gradient-to-r from-red-900 to-red-800 hover:from-red-800 hover:to-red-700 text-gray-100 font-bold px-6 py-3 rounded-lg flex items-center transition-all duration-300 shadow-md"
-              >
-                <ArrowRight size={24} />
-              </motion.button>
-            </div>
+            <h3 className="text-3xl font-serif text-red-400">Start Your Hunt</h3>
             <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
+              whileHover={{ scale: isCreating || !address ? 1 : 1.05 }}
+              whileTap={{ scale: isCreating || !address ? 1 : 0.95 }}
               onClick={handleCreateGame}
-              className="w-full bg-gray-900/50 hover:bg-gray-900/70 text-red-300 font-serif font-bold rounded-lg px-6 py-4 flex items-center justify-center gap-3 transition-all duration-300 border border-red-900/40 shadow-lg"
+              className={`w-full bg-gradient-to-r from-red-900 to-red-800 hover:from-red-800 hover:to-red-700 text-gray-100 font-serif font-bold rounded-lg px-6 py-4 flex items-center justify-center gap-3 transition-all duration-300 shadow-lg ${isCreating || !address ? 'opacity-50 cursor-not-allowed' : ''}`}
+              disabled={isCreating || !address}
             >
-              <Plus size={24} />
-              Summon a New Hunt
+              {isCreating ? (
+                <div className="flex items-center gap-2">
+                  <Loader2 className="w-6 h-6 animate-spin" /> {/* Spinner animé */}
+                  <span>Creating...</span>
+                </div>
+              ) : (
+                <>
+                  <Plus size={24} />
+                  Summon a New Hunt
+                </>
+              )}
             </motion.button>
             {error && <p className="text-red-500 text-sm">{error}</p>}
           </motion.div>
-        </div>
-      </motion.div>
-    </section>
-  );
-});
+        </motion.div>
+      </section>
+    );
+  }
+);
 
+// Composant RoleCard
 const RoleCard = ({ role, isActive = false }: { role: Role; isActive?: boolean }) => {
   const [isHovered, setIsHovered] = useState(false);
 
@@ -277,6 +205,7 @@ const RoleCard = ({ role, isActive = false }: { role: Role; isActive?: boolean }
   );
 };
 
+// Composant InfiniteLinearCarousel
 const InfiniteLinearCarousel = ({ roles }: { roles: Role[] }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [direction, setDirection] = useState<'left' | 'right'>('right');
@@ -360,6 +289,7 @@ const InfiniteLinearCarousel = ({ roles }: { roles: Role[] }) => {
   );
 };
 
+// Composant Footer
 const Footer = React.forwardRef<HTMLDivElement>((_, ref) => (
   <footer ref={ref} className="bg-gray-950/90 border-t border-red-900/30 py-6 w-full snap-stop mt-auto">
     <div className="mx-auto px-4 w-full">
@@ -375,8 +305,10 @@ const Footer = React.forwardRef<HTMLDivElement>((_, ref) => (
   </footer>
 ));
 
+// Composant principal Lobby
 export default function Lobby({ onJoinGame }: LobbyProps) {
-  const [, setWallet] = useState<StarknetWindowObject>();
+  const [wallet, setWallet] = useState<StarknetWindowObject | undefined>();
+  const [address, setAddress] = useState<string | undefined>();
   const rolesSectionRef = React.useRef<HTMLDivElement>(null);
   const footerRef = React.useRef<HTMLDivElement>(null);
 
@@ -426,7 +358,10 @@ export default function Lobby({ onJoinGame }: LobbyProps) {
       </div>
 
       <div className="relative z-10 flex flex-col min-h-screen">
-        <Header onConnect={setWallet} />
+        <Header onConnect={(wallet, address) => {
+          setWallet(wallet);
+          setAddress(address);
+        }} />
         <section className="min-h-screen flex items-center justify-center snap-start">
           <motion.div
             initial={{ opacity: 0, y: 50 }}
@@ -442,7 +377,12 @@ export default function Lobby({ onJoinGame }: LobbyProps) {
             </p>
           </motion.div>
         </section>
-        <JoinGameSection onJoinGame={onJoinGame} ref={rolesSectionRef} />
+        <JoinGameSection
+          wallet={wallet}
+          address={address}
+          onJoinGame={onJoinGame}
+          ref={rolesSectionRef}
+        />
         <section ref={rolesSectionRef} className="min-h-screen flex flex-col items-center justify-center snap-start py-16">
           <motion.div
             initial={{ opacity: 0, y: 50 }}

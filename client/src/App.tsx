@@ -1,5 +1,4 @@
-import React, { useState } from 'react';
-import { Moon, Users, Plus, ArrowRight } from 'lucide-react';
+import { useState } from 'react';
 import Lobby from './components/Lobby';
 import Game from './components/Game';
 
