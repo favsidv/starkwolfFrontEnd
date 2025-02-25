@@ -1,0 +1,35 @@
+{
+  "abi": [
+    {
+      "inputs": [
+        {
+          "name": "game_id",
+          "type": "felt"
+        },
+        {
+          "name": "players",
+          "type": "felt*"
+        }
+      ],
+      "name": "start_game",
+      "outputs": [],
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "name": "game_id",
+          "type": "felt"
+        }
+      ],
+      "name": "get_game_state",
+      "outputs": [
+        {
+          "name": "state",
+          "type": "felt"
+        }
+      ],
+      "type": "function"
+    }
+  ]
+} 
